@@ -6,7 +6,7 @@ future versions of this project are planned to be fully self-contained, with the
 
 Flight logs are stored on an internal micro SD card and can be accessed via the wifi interface (or by removing the SD card).
 
-This project was started in 2023 for the "Pencil Pusher" Mach 1+ Vehicle.
+This project was started in 2023 for the "Pencil Pusher" Mach 1+ Vehicle,
 [High Powered Rocketry Club](https://ncsurocketry.org/), WolfWorks Team,
 North Carolina State University
 # Getting Started
