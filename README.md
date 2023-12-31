@@ -22,6 +22,9 @@ This project is built very specifically for the [Seeed XIAO ESP32S3 Sense](https
 3. [PlatformIO IDE](https://platformio.org/install/ide?install=vscode) extension vor VSCode
 4. Optionally, grab the [Teleplot](https://marketplace.visualstudio.com/items?itemName=alexnesnes.teleplot) extension for VSCode *(for easily charting sensor / debug data sent over serial)*
 5. [Espressif 32](https://registry.platformio.org/platforms/platformio/espressif32) platform for PlatformIO
+6. PlatformIO should automatically install all other dependencies when you build the project. 
+
+Once that's done, check out the various [Tutorials](https://docs.platformio.org/en/latest/tutorials/index.html) for using PlatformIO if you haven't used it before. There are a few key differences between PIO and the Arduino IDE (like the project configuration file, [platformio.ini](https://docs.platformio.org/en/latest/projectconf/index.html), which replaces the Tools menu settings from the Arduino IDE, helps manage your library dependencies, and more)
 
 
 # Dev Roadmap
