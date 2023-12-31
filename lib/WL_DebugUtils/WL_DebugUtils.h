@@ -2,7 +2,7 @@
 /*
   WL_DebugUtils.h
   Shorthand debug message functions to speed the debugging process.
-  (Yes, it's poor form to have everything in the header file--that's fine)
+  (Yes, it's poor form to have everything in the header file--that's fine because c++ doesn't care)
 
   The debugMode int must be defined prior to using any of these functions
     int debugMode = 1;
@@ -27,10 +27,6 @@ void debugStart(int baud = 9600) {
 
 /// @brief Close the debug serial connection if debugMode is >=0
 void debugStop() {
-  /* debugStop()
-  End the serial connection
-  Arguments: none
-  */
   if (debugMode > 0) {
     Serial.end();
   }
@@ -43,14 +39,6 @@ void debugStop() {
 /// @param ln if true, use Serial.println, else use Serial.print. Default: true
 template <typename Type>
 void debugMsg(Type txtIn, int minLevel = 1, bool ln = true) {
-  /* debugMsg(txtIn, ln, minLevel)
-    Send a debug message to serial depending on the debug mode
-    Arguments:
-    txtIn   - Message to be sent
-    minLevel- Minimum debugMode level to send the specified message (default is 1)
-    ln      - Serial.println will be used if true (or blank), Serial.print will be used if set to false
-  */
-
   if ((debugMode > 0) && (debugMode >= minLevel)) {
     if (ln) {
       Serial.println(txtIn);
