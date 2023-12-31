@@ -10,6 +10,8 @@ Flight logs are stored on an internal micro SD card and can be accessed via the 
 # Getting Started
 This code is still in its early stages *(read: mostly incomprehensible and sparsely commented).* With that in mind, you're more than welcome to pick through it, learn how things work, and discuss in the HPRC Slack.
 
+Note: I'm not currently accepting pull requests until after the next few club meetings in January to make sure everyone who want's to contribute is on the same page without project goals.
+
 ### Setting up your dev environment 
 This project is built very specifically for the [Seeed XIAO ESP32S3 Sense](https://wiki.seeedstudio.com/xiao_esp32s3_getting_started/) using PlatformIO. Make sure you've installed and set up the following things before cloning this repo to your system:
 1. [Microsoft VSCode](https://code.visualstudio.com/download)
@@ -94,6 +96,9 @@ There are lots of `TODO` comments in the various files of this project with more
 	- Write T0 timestamp to logfile
 - React to launch detected flag
   - Shut down all wifi stuff (AP, webserver, mDNS)
+- Code refactor & cleanup 
+  - Move extraneous functions / methods from main.cpp to their own files
+  - Format all code and comments neatly
 - Make documentation webpage
   - Instructions for *everything*
 - OpenLogger serial input (for Quasar data)
