@@ -20,27 +20,28 @@ This project is built very specifically for the [Seeed XIAO ESP32S3 Sense](https
 
 
 # Dev Roadmap
-There are lots of //todo comments in the various files of this project with more details and things not mentioned here, but the following is the current dev roadmap.
+There are lots of `TODO` comments in the various files of this project with more details and things not mentioned here, but the following is the current development roadmap:
 
 ### Completed Items
 - ✅ Verify sensor functionality
   - ✅[ADXL377](https://learn.adafruit.com/adafruit-analog-accelerometer-breakouts) Analog high-g accelerometer 
     <br> NOTE: Calibration is very difficult for this fella. We're hopefully going to be replacing it with an I2C high-g accelerometer such as the [H3LIS200](https://www.dfrobot.com/product-2314.html) or [H3LIS331](https://www.adafruit.com/product/4627)
-  - ✅[DPS310](https://learn.adafruit.com/adafruit-dps310-precision-barometric-pressure-sensor/overview) I2C Barometric pressure and temperature sensor
-- Base functionality for reading and translating sensor data
+  - ✅[DPS310](https://learn.adafruit.com/adafruit-dps310-precision-barometric-pressure-sensor/overview) I2C Precision barometric pressure and temperature sensor (altimeter)
+- ✅Base functionality for reading and translating sensor data
   - ❌ ~~Filter ADXL377 x/y/z data and convert to g and m/s²~~ <br> Abandoning this for now pending switch to serial accelerometer *(because they're factory-calibrated and will simply give us g-force or m/s² values directly)* or construction of a proper high-g test apparatus (centrifuge?)
-  - ✅ Filter DPS310 temp and pressure data and convert to altitude <br> See main.cpp for details on the methods used to calculate altitude. *(Tl;dr it's using a modified form of the Barometric formula)*
+  - ✅ Filter DPS310 temp and pressure data and convert to altitude <br> See main.cpp for details on the methods used to calculate altitude. *(Tl;dr it's using a modified form of the [Barometric formula](https://en.wikipedia.org/wiki/Barometric_formula))*
 - ✅ Debug Framework
   - ✅ Specialized debugMsg() functions to replace Serial.print with additional functionality <br> (See WL_DebugUtils.h for details)
   - ✅ Print sensor data to serial in [Teleplot](https://marketplace.visualstudio.com/items?itemName=alexnesnes.teleplot)-compatible format
 
 ### Current Items
-- ✅ Implement SPIFFS internal file system *(non-SD card file system)* for storing webpage data
+- ✅ Implement [SPIFFS](https://docs.espressif.com/projects/esp-idf/en/latest/esp32/api-reference/storage/spiffs.html) internal file system *(non-SD card file system)* for storing webpage data
 - ✅ Implement WiFi AP functionality
+  - Also added WiFi dev mode flag, if set to true WiFi will start in STA mode and connect to a pre-defined network (i.e. the same wifi network your PC is on)
 - ✅ Implement Base WebServer.h functionality for serving webpages
-  - ❗ server.serveStatic for each page to send SPIFFS files to client upon request
+  - ❗ server.serveStatic() for each page to send SPIFFS files to client upon request
 - ✅ Implement mDNS for logger access via .local domain name (easier than typing the IP into the browser address bar)
-- HTML content, styling, scripting for placeholder webpages
+- HTML content, styling, scripting for core webpages
   - ❗ Placeholder **status page** (doubles as the homepage when first connecting to the logger)
     - Current time w/ sync button
     - Checkbox to enable auto-refresh
@@ -69,8 +70,8 @@ There are lots of //todo comments in the various files of this project with more
       - Save config data to SD button: Create a new .txt file with all current config data flags
     - Arming
       - When armed: Remove all nav buttons to other pages and show armed state *(switch to displaying armed status page?)*, disallow all config changes, start launch detection code
-- Implement SD card file system
-  - Determine csv field format for logfile
+- Implement SD card file system ([SDFat](https://github.com/greiman/SdFat))
+  - Finalize csv field format for logfile
     - Timestamp
     - Altimeter data (pressure, temp, altitude in m or ft or both?)
     - Accelerometer data (x,y,z in g or m/s² or both?)
@@ -128,7 +129,7 @@ There are lots of //todo comments in the various files of this project with more
   - Possible options: 
     - [H3LIS331DL](https://www.adafruit.com/product/4627)
     - [H3LIS200DL](https://www.dfrobot.com/product-2314.html)
-    - [ADXL375](https://www.adafruit.com/product/5374) *(not as good as the ST options above)*
+    - [ADXL375](https://www.adafruit.com/product/5374) *(not as good as the LIS options above)*
 - Automatic generation of "Graphite Readme.txt" file on SD card at startup if it's missing or empty (to ensure every SD card has the file, or in case it gets deleted)
   - Basic instructions on how to connect to the logger, wifi password recovery, github links, etc. 
 - Battery level detection for *internal battery*

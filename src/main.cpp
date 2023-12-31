@@ -12,6 +12,19 @@ Core codebase written by Willard Sheets
 Additional contributions by NCSU HPRC Team Members:
   Your name here
 
+TODO: move and reformat this info into README.md
+
+Misc. Important Notes:
+  - Only one client can be connected to the logger at a time (WebServer.h limitation); if two people try to connect at once things *will* break!
+  - Webpage files must be placed in the /data folder. All contents of this folder must be built into a SPIFFS image and uploaded to the ESP separately via: 
+    PlatformIO tab > Project Tasks > seeed_xiao_esp32s3 > Platform > Build Filesystem Image, followed by Platform > Upload Filesystem Image
+    - Close all serial terminal windows before building or uploading the filesystem image!
+    - Whenever webpages are updated, don't forget to rebuild and reupload SPIFFS filesystem image. 
+    - If the file system is not present on the ESP32, the web server will not function. 
+    - The SPIFFS filesystem structure is flat; any files within subdirectories of the /data folder will simply be moved to the root directory ("/") within SPIFFS.
+    - TODO: graceful failure mode if webpage files not present in SPIFFS
+  
+
 Hardware used:
   Seeed XIAO ESP32S3 Sense (with Sense board attached, camera + ribbon cable removed)
   Adafruit DPS310 barometric altimeter (pressure and temp)
@@ -42,40 +55,61 @@ Applicable Licenses / Libraries:
 
 */
 
-// Main includes --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+// Includes -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
   #include <Arduino.h>
-  // #include "SPIFFS.h"  // Not used, switching to Preferences instead
-  #include <Preferences.h> // For storing persistent configuration data in ESP32's NVS partition
-  #include <Adafruit_DPS310.h>
-  #include <WL_DebugUtils.h> // For debugMsg() functions (Serial.print(ln) with added functionality)
+  #include <SPIFFS.h>         // Internal file system for storing wepage files
+  #include <Preferences.h>    // For storing persistent configuration data in ESP32's NVS partition
+  #include <Wifi.h>           // Wireless Fidelity dot h
+  #include <ESPmDNS.h>        // mDNS for web server; allows usage of .local domain names instead of IP address
+  #include <WebServer.h>   // For hosting the interface webpages
+  // #include <AsyncTCP.h>       // Used by AsyncWebServer  
+  // #include <ESPAsyncWebServer.h>  // Not in use for now, maybe implement later?
+  #include <Adafruit_DPS310.h>  // For reading data from the DPS310
+  #include <WL_DebugUtils.h>  // For debugMsg() functions (Serial.print(ln) with added functionality)
 
-// Debug Mode -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
-  /* Note: 
-  Additional debug information can be printed to serial by changing -DCORE_DEBUG_LEVEL=n in platformio.ini
-    Options: 0=None, 1=Warn, 2=Info, 3=Debug, 4=Verbose
+// Debug ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+  /* Debug notes: 
+  When testing startup behavior, use "Upload and Monitor" in platformio (instead of just "Upload") to ensure no debug messages are missed.
+  Additional debug information (from the ESP32's internal debugging suite) can be printed to serial by changing -DCORE_DEBUG_LEVEL=n in platformio.ini
+    Options: 0=None, 1=Error, 2=Warn, 3=Info, 4=Debug, 5=Verbose
   Program debug message prefixes:
     [CRITICAL]  - Events that impact the base functionality of the device
     [ERROR]     - Errors that are not being handled gracefully
     [WARN]      - Errors that are being handled gracefully
     [INIT]      - Startup events
     [EVENT]     - General event logging
+    [INFO]      - General information
     [DATA]      - Data output (in verbose mode), followed by multiple lines (one for each value)
                   >[value]: [data] - format is used for Teleplot (VSCode plugin)
+  Status LED Flash patterns:
+    If the LED is repeating any flash pattern, the program is currently halted.
+    Short-short       - Waiting for serial connection (runs at startup if debugMode is enabled)
+    Short-long-short  - Failed to initialize SPIFFS file system, or
+    Short-long-short  - Failed to load Preferences config item(s) from nvs, or
+    Short-long-short  - Failed to start wifi softAP during startup, or
+    Short-long-short  - Failed to start mDNS server during startup, or
+    Short-long-short  - Failed to start web server during startup
+    Short-long-long-short - Unable to establish I2C connection with [TODO FOR NEW ACCELEROMETER]
+    Short-long-long-long-short - Unable to establish I2C connection with to DPS310 in startup
   */
-  int debugMode = 2; // 0 = off, 1 = General, 2 = Verbose
+  int debugMode = 1;    // 0 = off, 1 = General, 2 = Verbose (prints all sensor data to serial in Teleplot format)
+  bool wi_devMode = 0;  // If true WiFi will attempt to connect to the network with SSID wi_host and password wi_hostPass, rather than creating it's own AP. Use for development purposes only!
+  const char * wi_host = "foo"; // SSID of wifi network to connect to when in dev mode
+  const char * wi_hostPass = "bar";  // Password of network to connect to when in dev mode
 
 // IO Defines -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
   #define p_xAccel A0         // Accelerometer X analog pin
   #define p_yAccel A1         // Accelerometer Y analog pin
   #define p_zAccel A2         // Accelerometer Z analog pin
-  #define p_testAccel D5      // Accelerometer self test pin
+  #define p_testAccel D5      // Accelerometer self test pin (Not used)
   #define p_SDA D3            // I2C Data pin (used by DPS310)
-  #define p_SCL D4
-  #define io_DPS310Address 0x77
-  #define io_USBSerialSpeed pio_monitor_speed
+  #define p_SCL D4            // I2c Clock pin (used by DPS310)
+  #define io_DPS310Address 0x77 // DPS310 I2C Address
+  #define io_USBSerialSpeed pio_monitor_speed // Serial speed imported from platformio.ini
 
 // Instantiate Classes --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
-  Adafruit_DPS310 dps;
+  WebServer server(80);
+  Adafruit_DPS310 dps; //DPS310 object
 
 // Global Variables -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
   /* Note: 
@@ -83,6 +117,11 @@ Applicable Licenses / Libraries:
       Persistent config variables are loaded from the nvs (non-volatile storage) partition in setup() via the Preferences library
   */
   // WiFi
+  const char * wi_ssid = "Graphite";    // Wifi network name
+  const char * wi_pass = "allthedata";  // Wifi network password (minimum 8 characters)
+  const char * wi_address = "graphite"; // mDNS hostname, creates a local domain name [wi_address].local for accessing the web server
+  int wi_channel = 1;                   // What wireless channel to use for the AP
+  wifi_power_t wi_power = WIFI_POWER_8_5dBm; // WiFi Tx Power setting (see WiFiGeneric.h for possible values)
 
   // Logging
   unsigned long io_StatLEDTimer;      // millis() timer for blinking the status LED
@@ -152,38 +191,150 @@ Applicable Licenses / Libraries:
       program work backwards, actually)
   */
 
-// map() but for floats
-float mapf(float num, float fromLow, float fromHigh, float toLow, float toHigh)
-{
-	return (num - fromLow) * (toHigh - toLow) / (fromHigh - fromLow) + toLow;
+#include "WebFuncs.h" // Web server functions (we have to include this after all the globals are defined, instntiated, etc. because it uses some fo them)
+
+
+// Misc. Functions ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+// List directory debug function for SPIFFS file system
+void SPIFFS_List_Dir(const char * dirName = "/") {
+  debugMsg("[INFO]: SPIFFS File tree: ");
+  debugMsg("  ",1,0); debugMsg(SPIFFS.usedBytes(),1,0); debugMsg(" out of ",1,0); debugMsg(SPIFFS.totalBytes(),1,0); debugMsg(" bytes used");
+
+  File root = SPIFFS.open(dirName);
+  if(!root){
+    debugMsg("  Error: Failed to open directory!");
+    return;
+  }
+  if(!root.isDirectory()){
+    // debugMsg(" - not a directory");
+    return;
+  }
+  File file = root.openNextFile();
+  while(file){
+    if(file.isDirectory()){
+      debugMsg("  DIR : ",1,0);
+      debugMsg(file.name());
+      debugMsg("  --->");
+      SPIFFS_List_Dir(file.path());
+      debugMsg("  ---");
+    } else {
+      debugMsg("  FILE: ",1,0);
+      debugMsg(file.name(),1,0);
+      debugMsg("\tSIZE: ",1,0);
+      debugMsg(file.size());
+    }
+    file = root.openNextFile();
+  }
 }
 
 
+// map() but for floats
+float mapf(float num, float fromLow, float fromHigh, float toLow, float toHigh) {
+	return (num - fromLow) * (toHigh - toLow) / (fromHigh - fromLow) + toLow;
+}
+
+// These must exist in main.cpp because I hate myself (but also because server.on requires a void function with no args but I have to pass the server object as an arg to the send funcs)
+void handleNotFound() { wi_NotFound(server); } 
+void handleHome() { wi_sendStatPage(server); } 
+void handleSetup() { wi_sendSetupPage(server); } 
+void handleLogs() { wi_sendLogsPage(server); } 
+void handleDocs() { wi_sendDocsPage(server); } 
+
+// ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 // Setup ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+// ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 void setup() {
   // Init pins
   analogReadResolution(12); // Switch to 12-bit analog read resolution for precise reads of analog inputs
-  pinMode(LED_BUILTIN,OUTPUT);
+  pinMode(LED_BUILTIN,OUTPUT); // Fun note: the XIAO's internal LED is connected to 3V3 (not GND), meaning writing this pin LOW turns it on, and HIGH turns it off
   pinMode(p_xAccel,INPUT);
   pinMode(p_yAccel,INPUT);
   pinMode(p_zAccel,INPUT);
   
-  pinMode(D7,INPUT_PULLUP);
-  
   // Debug
   debugStart(io_USBSerialSpeed); // Start debugging
-  // Blink while waiting for serial
-  // Note: This while loop blocks everything else until a serial connection is found. If needed later, we can swap to FreeRTOS to handle this
-  while(debugMode > 0 && !Serial) { 
+  while(debugMode > 0 && !Serial) { // Blink short pattern while waiting for serial
+    // Note: This while loop blocks everything else until a serial connection is found. If needed later, we can swap to FreeRTOS to handle this
     digitalWrite(LED_BUILTIN,1); delay(100);
     digitalWrite(LED_BUILTIN,0); delay(50);
   }
+  unsigned long performanceTimer = millis();
+  debugMsg("\n\n\n[INIT]: Starting Logger...");
 
   // Load config data from NVS
   //todo
 
+  // Init SPIFFS file system
+  if(!SPIFFS.begin()){
+      debugMsg("[CRITICAL]: Failed to init SPIFFS");
+      while (1) { // Blink short-long-short error pattern on LED
+        digitalWrite(LED_BUILTIN,0); delay(100);
+        digitalWrite(LED_BUILTIN,1); delay(100);
+        digitalWrite(LED_BUILTIN,0); delay(500);
+        digitalWrite(LED_BUILTIN,1); delay(100);
+        digitalWrite(LED_BUILTIN,0); delay(100);
+        digitalWrite(LED_BUILTIN,1); delay(1000);
+      }
+  }
+  SPIFFS_List_Dir(); // Print the SPIFFS file tree to debug
+
+  // Wifi setup
+  debugMsg("[INIT]: Starting Wifi...\n");
+  if (wi_devMode) { // If we're in dev mode, connect to the development wifi network instead of starting AP
+    WiFi.mode(WIFI_MODE_STA);
+    WiFi.setHostname("Graphite Test Client");
+    WiFi.begin(wi_host,wi_hostPass);
+    WiFi.setTxPower(wi_power);
+    while (WiFi.status() != WL_CONNECTED) {
+      delay(500);
+      debugMsg(".",1,0);
+    }
+    debugMsg("\n  Wifi Connected to: ",1,0); debugMsg(WiFi.SSID(),1,0); debugMsg(" with RSSI: ",1,0); debugMsg(WiFi.RSSI()); 
+    debugMsg("  Local IP: ",1,0); debugMsg(WiFi.localIP(),1,0); debugMsg(" with device name: ",1,0); debugMsg(WiFi.getHostname()); 
+  } else { // Else start the AP like normal
+    WiFi.mode(WIFI_MODE_AP);
+    if (!WiFi.softAP(wi_ssid,wi_pass)) { // Start a softAP on channel 1 with 
+      debugMsg("  [CRITICAL]: Soft AP creation failed, program halted.");
+      while (1) { // Blink short-long-short error pattern on LED
+        digitalWrite(LED_BUILTIN,0); delay(100);
+        digitalWrite(LED_BUILTIN,1); delay(100);
+        digitalWrite(LED_BUILTIN,0); delay(500);
+        digitalWrite(LED_BUILTIN,1); delay(100);
+        digitalWrite(LED_BUILTIN,0); delay(100);
+        digitalWrite(LED_BUILTIN,1); delay(1000);
+      }
+    }
+    WiFi.setTxPower(wi_power);
+    debugMsg("  Wifi started SSID: ",1,0); debugMsg(WiFi.SSID(),1,0); debugMsg(" and IP: ",1,0); debugMsg(WiFi.softAPIP()); 
+  }
+
+  // WebServer setup
+  debugMsg("[INIT]: Starting Web Server...\n");
+  if (!MDNS.begin(wi_address)) {
+    debugMsg("  [CRITICAL}: Failed to start mDNS Service]");
+    while (1) { // Blink short-long-short error pattern on LED
+      digitalWrite(LED_BUILTIN,0); delay(100);
+      digitalWrite(LED_BUILTIN,1); delay(100);
+      digitalWrite(LED_BUILTIN,0); delay(500);
+      digitalWrite(LED_BUILTIN,1); delay(100);
+      digitalWrite(LED_BUILTIN,0); delay(100);
+      digitalWrite(LED_BUILTIN,1); delay(1000);
+    }
+  } else {
+    MDNS.addService("http", "tcp", 80);
+    debugMsg("  mDNS started, web server available at http://",1,0); debugMsg(wi_address,1,0); debugMsg(".local");
+  }
+  // server.on("/", handleHome); // Callback for initial client connection to server (or nav to homepage)
+  server.serveStatic("/",SPIFFS,"/status.html");
+  server.on("/setup", handleSetup); // Callback for setup page
+  server.on("/logs", handleLogs); // Callback for logs page
+  server.on("/docs", handleDocs); // Callback for docs page
+  server.onNotFound(handleNotFound); // Callback to handle invalid requests from client;
+  server.begin();
+
   // DPS310 setup (Barometric temp + pressure)
-  debugMsg("\n\n\n[INIT]: Starting Logger\nInitializing sensors...");
+  debugMsg("\n\n\n[INIT]: Initializing sensors...");
   Wire.begin(p_SDA,p_SCL); // This is required because we can't use D5 (default) for I2C (hardware bug?)
   for (int i = 1; i <= 10; i++) { //Try up to 10 times to establish an I2C connection
     if (!dps.begin_I2C()) {
@@ -196,18 +347,34 @@ void setup() {
       break;
     }
     if (i == 10) {
-      debugMsg("  [CRITICAL]: Failed to initialize Sensor: DPS310");
+      debugMsg("  [CRITICAL]: Failed to initialize Sensor: DPS310, program halted.");
+      while (1) { // Blink short-long-long-long-short error pattern on LED
+        digitalWrite(LED_BUILTIN,0); delay(100);
+        digitalWrite(LED_BUILTIN,1); delay(100);
+        digitalWrite(LED_BUILTIN,0); delay(500);
+        digitalWrite(LED_BUILTIN,1); delay(100);
+        digitalWrite(LED_BUILTIN,0); delay(500);
+        digitalWrite(LED_BUILTIN,1); delay(100);
+        digitalWrite(LED_BUILTIN,0); delay(500);
+        digitalWrite(LED_BUILTIN,1); delay(100);
+        digitalWrite(LED_BUILTIN,0); delay(100);
+        digitalWrite(LED_BUILTIN,1); delay(1000);
+      }
     }
   }
 
   // ADXL377 setup (high g 3-axis accelerometer)
   //todo if needed
   
+  performanceTimer = millis() - performanceTimer;
+  debugMsg("[INIT]: Startup finished in ",1,0); debugMsg(performanceTimer,1,0); debugMsg("ms\n\n");
   
-  debugMsg("[INIT]: Startup finished.\n");
+  io_StatLEDTimer = millis(); // Reset the LED Status blink timer
 }
 
+// ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 // Loop -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+// ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 void loop() {
 
   // Process Accelerometer Data
@@ -394,21 +561,28 @@ void loop() {
   // }
     
 
+  // Do web server stuff
+  server.handleClient();
+
   // Blink LED
   if ((millis() - io_StatLEDTimer) > 1000) {
     int switchTime = millis() - io_StatLEDTimer;
-    io_StatLEDTimer = millis(); // Reset the state timer
+    
     io_StatLEDState = !io_StatLEDState; // Toggle state
     digitalWrite(LED_BUILTIN,io_StatLEDState); // Write the state to the LED pin
-    // debugMsg("[EVENT] Status LED ",2,0); 
-    // if (io_StatLEDState) { 
-    //   debugMsg("On (in ",2,0); 
-    // } else {
-    //  debugMsg("Off (in ",2,0);
-    // } 
-    // debugMsg(switchTime,2,0);
-    // debugMsg("ms)",2,1);
-    
+    // Write a warning to debug if the main loop might be taking longer than we expect to execute
+    if (switchTime > 1003) { 
+      debugMsg("[EVENT] Main loop execution may be taking longer than expected! \n  Reason: Status LED turned ",1,0); 
+      if (switchTime > 1003) { 
+        debugMsg("off in ",1,0); 
+      } else {
+      debugMsg("on in ",1,0);
+      } 
+      debugMsg(switchTime,1,0);
+      debugMsg("ms (which should be closer to 1000ms)",1,1);
+    }
+
+    io_StatLEDTimer = millis(); // Reset the state timer
   }
   
 }
