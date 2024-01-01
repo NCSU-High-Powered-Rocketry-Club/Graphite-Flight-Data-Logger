@@ -39,22 +39,24 @@ There are lots of `TODO` comments in the various files of this project with more
 - ✅ Debug Framework
   - ✅ Specialized debugMsg() functions to replace Serial.print with additional functionality <br> (See WL_DebugUtils.h for details)
   - ✅ Print sensor data to serial in [Teleplot](https://marketplace.visualstudio.com/items?itemName=alexnesnes.teleplot)-compatible format
-
-### Current Items
 - ✅ Implement [SPIFFS](https://docs.espressif.com/projects/esp-idf/en/latest/esp32/api-reference/storage/spiffs.html) internal file system *(non-SD card file system)* for storing webpage data
 - ✅ Implement WiFi AP functionality
   - Also added WiFi dev mode flag, if set to true WiFi will start in STA mode and connect to a pre-defined network (i.e. the same wifi network your PC is on)
 - ✅ Implement Base WebServer.h functionality for serving webpages
-  - ✅ server.serveStatic() for each page to send SPIFFS files to client upon request
+  - ✅ server.serveStatic() and server.on() callbacks to stream SPIFFS files to client upon request <br>
+    In some cases, client requests are denied or different items are returned depending on internal state flags (like armed status)
 - ✅ Implement mDNS for logger access via .local domain name (easier than typing the IP into the browser address bar)
+
+### Current Items
+
 - ❗ Store configuration data in non-volatile storage using ESP32 [Preferences](https://espressif-docs.readthedocs-hosted.com/projects/arduino-esp32/en/latest/api/preferences.html) library
 - HTML content, styling, scripting for core webpages
   - ❗ Placeholder **status pages** (doubles as the homepage when first connecting to the logger)
-    - ✅ Current time w/ sync button
+    - ✅ Current time w/ sync button (sends the current time from the client to the ESP32 to set the ESP32's internal RTC, since we can't use NTP)
     - ✅ Current sensor data (Altitude, temp, pressure, x/y/z acceleration)
-    ✅ - Current core configuration data
-    ✅ - Arm button w/ confirm prompt <br>
-        Disallow arm if time not synced, not enough space on SD, or any other errors present
+    - ✅ Current primary configuration data (placeholders)
+    - ✅ Arm button w/ confirm prompt <br>
+        Disallow arm if time not synced, not enough space on SD (placeholder until SDFat implemented), or any other errors present (Future idea: detect non-nominal sensor conditions and prevent arming?)
     - ✅ Different status page when armed
     - Navigation buttons in header (for Setup, Flight Logs, Docs)
   - ❗ Setup page
@@ -72,12 +74,14 @@ There are lots of `TODO` comments in the various files of this project with more
     - Accelerometer data (x,y,z in g or m/s² or both?)
     - Battery voltage
     - Other data? (OpenLog entries?)
-    - Notes field (for logging special events like T0, apogee, ejection, etc.)
-  - Create a new log file and start logging data at background rate (very slow speed) when client arms rocket (detect via global armed status flag)
-  - Terminate log file if client disarms rocket
+    - Notes field (for logging special events like T0, apogee, ejection, landing, etc.)
+  - Create a new log file and start logging data at background rate (very slow speed) when client arms rocket (detect via global armed status flag) <br>
+    Use "Flight log: " + Timestamp at moment started as logfile name
+  - Terminate log file if client disarms rocket 
   - Switch to high-speed logging when launch detected flag is set
+  - Terminate log file if SD Card is almost full (at any point, regardless of armed / in-flight state flags)
   - Add functionality to logs page
-    - List flight log files
+    - List flight log files (or just list all SD files)
 		- Download button next to each file
 		- Delete button (w/ confirm prompt) next to each file
 - Add ADXL377 detection logic to setup()
@@ -109,6 +113,7 @@ There are lots of `TODO` comments in the various files of this project with more
   - Format all code and comments neatly
 - Make documentation webpage
   - Instructions for *everything*
+- *Sensor fusion for apogee and e-fuse activaton detection*
 - *OpenLogger serial input (for Quasar data)*
 	- *Only if quasar output is 3.3V logic; not worth adding a level shifter for this*
 	- *Simulate data stream w/ teensy for testing?*
