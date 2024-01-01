@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="stylesheet" href="style.css">
+  <link rel="icon" type="image/x-icon" href="favicon.ico">
+  <title>Graphite !ARMED!</title>
+</head>
+
+<header>
+  <strong>Status:</strong>
+  <div>Armed for launch!</div>
+  <button id="disarmButton" onclick="disarm()">Disarm</button><br>
+  <em id="disarmResponse"></em><br>
+  <hr>
+</header>
+
+
+<body>
+  <div>
+    I'm currently listening to my sensors for a launch event and logging the sensor data at the background rate you
+    set. If you won't be launching for a while, please disarm me (and optionally delete this log file via the logs
+    page) to save space on the SD card!<br>
+    <br>
+    Otherwise, once launch is detected, your WiFi connection with me will be terminated and I'll start logging data at the active logging rate you set.<br>
+    <em>(and hopefully your rocket will go very high and fast)</em>😁<br>
+    Once I've detected landing (or it's been longer than the flight timeout you defined), I'll switch back to logging
+    data at the background rate for as long as you've told me to, then I'll save the log file and shut down (meaning you can't use my WiFi signal as any kind of locator beacon). <br>
+    When you're ready to access the flight log, switch me off and back on again, reconnect to my WiFi network, and navigate to the logs page... <em>Or just grab it off from my SD card</em> 🥺 <br>
+    <br>
+    All interactive content has been disabled so I can focus on detecting your launch. Please don't navigate away from this page unless you've disarmed me first!<br>
+    Live status feeds disabled. <br>Setup access disabled. <br> Flight logs access disabled. <br>Page navigation disabled.
+  </div>
+</body>
+
+<footer>
+  <hr>NCSU HPRC - Graphite Flight Data Logger
+</footer>
+
+<script type="text/javascript">
+
+  blockDisarm = false;
+  function disarm() {
+    if (blockDisarm) return;
+    const responseElement = document.getElementById("disarmResponse");
+    if (confirm("Confirm disarm command:")) {
+      responseElement.textContent = "Sending disarm command...";
+      blockDisarm = true;
+      document.getElementById("disarmButton").textContent = "(Disarming...)";
+      setTimeout(function() {
+        if (blockDisarm) {
+          document.getElementById("disarmResponse").textContent = "❗ Failed to disarm ❗";
+          document.getElementById("disarmButton").textContent = "Disarm";
+          blockDisarm = false;
+          setTimeout(function() {
+            document.getElementById("disarmResponse").textContent = "";
+          }, 5000); 
+        }
+      }, 1000); 
+      fetch("/disarm")
+        .then(response => response.text())
+        .then(text => {
+          if (text === "success") {
+            responseElement.textContent = "I'm no longer armed for launch! Refresh the page if it doesn't refresh automatically";
+            location.reload();
+          } else {
+            responseElement.textContent = "Unable to disarm: " + text;
+            document.getElementById("disarmButton").textContent = "(Cannot Disarm)";
+            blockDisarm = true;
+            setTimeout(function() {
+              document.getElementById("disarmButton").textContent = "Disarm";
+              blockDisarm = false;
+            }, 1000);
+          }
+        });
+    }
+  }
+
+</script>
+
+</html>

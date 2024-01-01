@@ -2,13 +2,267 @@
 <html xmlns="http://www.w3.org/1999/xhtml">
 
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Graphite Status</title>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="stylesheet" href="style.css">
+  <title>Graphite Status</title>
+  <link rel="icon" type="image/x-icon" href="favicon.ico">
 </head>
 
+<header>
+  <strong>Status:</strong>
+  <div>Not Armed!</div>
+  <button id="syncTimeButton" onclick="syncTime()">Sync</button><em id="syncTimeStatus"></em><br>
+
+  <div id="syncedTime">Time not synced</div>
+  <div id="syncedDate">Date not synced</div>
+  <div>Battery: <span id="syncedBatt">x.xx</span>V</div>
+  <hr>
+</header>
+
+
 <body>
-    <p>This will be the status page when I'm all grow'd up</p>
+  <div>
+    <strong>Remember:</strong> I'm not armed. If you launch me now, I won't log anything for you! 😤 <br>
+    <button id="armButton" onclick="arm()">Arm for Launch</button><br>
+    <em id="armResponse"></em><br>
+  </div>
+  <div>
+    <strong>Sensor Data:</strong>
+    <table>
+      <colgroup>
+        <col span="2" style="background-color:slategray">
+        <col span="2" style="background-color:gray">
+      </colgroup>
+      <tr>
+        <td>Altitude (ft)</td>
+        <td id="syncedAFt">Not Synced</td>
+        <td>Altitude (m)</td>
+        <td id="syncedAM">Not Synced</td>
+      </tr>
+      <tr>
+        <td>X Acceleration (raw)</td>
+        <td id="syncedX">Not Synced</td>
+        <td>Pressure (Pa)</td>
+        <td id="syncedP">Not Synced</td>
+      </tr>
+      <tr>
+        <td>Y Acceleration (raw)</td>
+        <td id="syncedY">Not Synced</td>
+        <td>Temp (°C)</td>
+        <td id="syncedTC">Not Synced</td>
+      </tr>
+      <tr>
+        <td>Z Acceleration (raw)</td>
+        <td id="syncedZ">Not Synced</td>
+        <td>Temp (°F)</td>
+        <td id="syncedTF">Not Synced</td>
+      </tr>
+    </table>
+  </div>
+  <br>
+  <div>
+    <strong>Configuration:</strong>
+    <table>
+      <colgroup>
+        <col span="2" style="background-color:slategray">
+        <col span="2" style="background-color:gray">
+      </colgroup>
+      <tr>
+        <td>Launch Detection X g-force</td>
+        <td id="syncedLEAX">Not Synced</td>
+        <td>Launch Detection Altitude (ft)</td>
+        <td id="syncedLDAF">Not Synced</td>
+      </tr>
+      <tr>
+        <td>Launch Detection Y g-force</td>
+        <td id="syncedLEAY">Not Synced</td>
+        <td>Flight Log Timeout (MM:SS)</td>
+        <td id="syncedFLTO">Not Synced</td>
+      </tr>
+      <tr>
+        <td>Launch Detection Z g-force</td>
+        <td id="syncedLEAZ">Not Synced</td>
+        <td>Post-landing Log Timeout (MM:SS)</td>
+        <td id="syncedLDTO">Not Synced</td>
+      </tr>
+    </table>
+  </div>
+  <br>
+  <div>
+    <strong>Notes:</strong>
+    <ul>
+      <li>Do not arm before syncing the time (via the sync button above)</li>
+      <li>Only arm after the rocket is on the pad and all other avionics systems (e.g. altimeters) are activated and
+        ready for launch!</li>
+      <li>Only arm if the sensor readings are within nominal launch conditions!</li>
+      <li>If you arm me before you're ready to launch, and I detect a false positive launch event (e.g. you bump the
+        rocket), I'll switch to flight mode and you won't be able to disarm me. If that happens, you will need to fully
+        power me off and back on again!</li>
+      <li>Do not allow more than one person to connect to my WiFi interface at a time (you might confuse me!)</li>
+    </ul>
+  </div>
+
+
+
 </body>
+<footer>
+  <hr>NCSU HPRC - Graphite Flight Data Logger
+</footer>
+
+<script type="text/javascript">
+
+  updating = false;
+  blockTimeSync = false;
+  function syncTime() {
+    if (!updating) {
+      updating = true;
+      updateInterval = setInterval(updateStatus, 200);
+    }
+    blockTimeSync = true;
+    document.getElementById("syncTimeButton").textContent = "Syncing...";
+    setTimeout(function () {
+      if (blockTimeSync) {
+        document.getElementById("syncTimeStatus").textContent = "❌ (sync failed on ESP side!)";
+        document.getElementById("syncTimeButton").textContent = "Sync";
+        blockTimeSync = false;
+        setTimeout(function () {
+          document.getElementById("syncTimeStatus").textContent = "";
+        }, 5000);
+      }
+    }, 5000);
+    const currentDate = new Date();
+    // const formattedTime = currentDate.toLocaleDateString('en-US') + ' ' + currentDate.toTimeString();
+    const dateString = currentDate.toLocaleDateString('en-US', {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric'
+    });
+    const timeString = currentDate.toTimeString();
+    const formattedTime = dateString + ' ' + timeString;
+    fetch('/syncTime', {
+      method: 'POST',
+      body: formattedTime
+    })
+      .then(response => response.text())
+      .then(status => {
+        blockTimeSync = false;
+        document.getElementById("syncTimeButton").textContent = "Sync";
+        const responseElement = document.getElementById("syncTimeStatus");
+        if (status === "success") {
+          responseElement.textContent = "✓";
+        } else {
+          responseElement.textContent = "❌ (sync failed!)";
+        }
+        setTimeout(function () {
+          document.getElementById("syncTimeStatus").textContent = "";
+        }, 5000);
+      });
+  }
+
+  blockArming = false;
+  function arm() {
+    if (blockArming) return;
+    const responseElement = document.getElementById("armResponse");
+    if (confirm("Confirm arming command:")) {
+      responseElement.textContent = "Sending arm command...";
+      blockArming = true;
+      document.getElementById("armButton").textContent = "(Arming...)";
+      setTimeout(function () {
+        if (blockArming) {
+          document.getElementById("armResponse").textContent = "❗ Failed to arm: no response ❗";
+          document.getElementById("armButton").textContent = "Arm for Launch";
+          blockArming = false;
+          setTimeout(function () {
+            document.getElementById("armResponse").textContent = "";
+          }, 4000);
+        }
+      }, 6000);
+      fetch("/armForLaunch")
+        .then(response => response.text())
+        .then(text => {
+          if (text === "success") {
+            responseElement.textContent = "I'm Armed! Refresh the page if it doesn't refresh automatically";
+            location.reload();
+          } else {
+            responseElement.textContent = "Unable to arm: " + text;
+            document.getElementById("armButton").textContent = "(Cannot Arm)";
+            blockArming = true;
+            setTimeout(function () {
+              document.getElementById("armButton").textContent = "Arm for Launch";
+              document.getElementById("armResponse").textContent = "";
+              blockArming = false;
+            }, 4000);
+          }
+        });
+    } else {
+      responseElement.textContent = "Arming canceled.";
+      document.getElementById("armButton").textContent = "(Cannot Arm)";
+      blockArming = true;
+      setTimeout(function () {
+        responseElement.textContent = "";
+        document.getElementById("armButton").textContent = "Arm for Launch";
+        blockArming = false;
+      }, 3000);
+    }
+  }
+
+
+  function updateStatus() {
+    fetch('/updateStatus', {
+      headers: {
+        'Content-Type': 'application/xml',
+        'Accept': 'application/xml'
+      }
+    })
+      .then(response => response.text())
+      .then(text => {
+        const xmlData = text;
+        const parser = new DOMParser();
+        const xmlDoc = parser.parseFromString(xmlData, 'text/xml');
+
+        const time = xmlDoc.querySelector('time').textContent;
+        const date = xmlDoc.querySelector('date').textContent;
+        const xAccel = xmlDoc.querySelector('xAccel').textContent;
+        const yAccel = xmlDoc.querySelector('yAccel').textContent;
+        const zAccel = xmlDoc.querySelector('zAccel').textContent;
+        const pressPa = xmlDoc.querySelector('pressPa').textContent;
+        const tempC = xmlDoc.querySelector('tempC').textContent;
+        const tempF = xmlDoc.querySelector('tempF').textContent;
+        const altM = xmlDoc.querySelector('altM').textContent;
+        const altFt = xmlDoc.querySelector('altFt').textContent;
+        const battV = xmlDoc.querySelector('battV').textContent;
+        const LDAF = xmlDoc.querySelector('launchDetectAltFt').textContent;
+        const LEAX = xmlDoc.querySelector('launchDetectXAccel').textContent;
+        const LEAY = xmlDoc.querySelector('launchDetectYAccel').textContent;
+        const LEAZ = xmlDoc.querySelector('launchDetectZAccel').textContent;
+        const FLTO = xmlDoc.querySelector('flightLoggingTimeout').textContent;
+        const LDTO = xmlDoc.querySelector('landedLoggingTimeout').textContent;
+
+        // Todo style outputs (color / size / etc) based on value
+        document.getElementById('syncedTime').textContent = time;
+        document.getElementById('syncedDate').textContent = date;
+        document.getElementById('syncedX').textContent = xAccel;
+        document.getElementById('syncedY').textContent = yAccel;
+        document.getElementById('syncedZ').textContent = zAccel;
+        document.getElementById('syncedP').textContent = pressPa;
+        document.getElementById('syncedTC').textContent = tempC;
+        document.getElementById('syncedTF').textContent = tempF;
+        document.getElementById('syncedAM').textContent = altM;
+        document.getElementById('syncedAFt').textContent = altFt;
+        document.getElementById('syncedBatt').textContent = battV;
+        document.getElementById('syncedLDAF').textContent = LDAF;
+        document.getElementById('syncedLEAX').textContent = LEAX;
+        document.getElementById('syncedLEAY').textContent = LEAY;
+        document.getElementById('syncedLEAZ').textContent = LEAZ;
+        document.getElementById('syncedFLTO').textContent = FLTO;
+        document.getElementById('syncedLDTO').textContent = LDTO;
+      })
+      .catch(error => {
+        console.error('Error fetching status update', error);
+      });
+  }
+
+</script>
 
 </html>
