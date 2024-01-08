@@ -11,8 +11,6 @@ This project was started in Fall 2023 for the "Pencil Pusher" supersonic vehicle
 # Getting Started
 This code is still in its early stages *(read: mostly incomprehensible and sparsely commented).* With that in mind, you're more than welcome to pick through it, learn how things work, and discuss in the HPRC Slack.
 
-Note: I'm not currently accepting pull requests until after the next few club meetings in January to make sure everyone who want's to contribute is on the same page with our project goals.
-
 ### Setting up your dev environment 
 This project is built very specifically for the [Seeed XIAO ESP32S3 Sense](https://wiki.seeedstudio.com/xiao_esp32s3_getting_started/) using PlatformIO. Make sure you've installed and set up the following things before cloning this repo to your system:
 1. [Microsoft VSCode](https://code.visualstudio.com/download)
@@ -46,10 +44,9 @@ There are lots of `TODO` comments in the various files of this project with more
   - ✅ server.serveStatic() and server.on() callbacks to stream SPIFFS files to client upon request <br>
     In some cases, client requests are denied or different items are returned depending on internal state flags (like armed status)
 - ✅ Implement mDNS for logger access via .local domain name (easier than typing the IP into the browser address bar)
+- ✅ Store / load configuration data in non-volatile storage using ESP32 [Preferences](https://espressif-docs.readthedocs-hosted.com/projects/arduino-esp32/en/latest/api/preferences.html) library
 
 ### Current Items
-
-- ❗ Store configuration data in non-volatile storage using ESP32 [Preferences](https://espressif-docs.readthedocs-hosted.com/projects/arduino-esp32/en/latest/api/preferences.html) library
 - HTML content, styling, scripting for core webpages
   - ❗ Placeholder **status pages** (doubles as the homepage when first connecting to the logger)
     - ✅ Current time w/ sync button (sends the current time from the client to the ESP32 to set the ESP32's internal RTC, since we can't use NTP)

@@ -62,18 +62,20 @@ Hardware used:
   Status LED Flash patterns:
     If the LED is repeating any flash pattern, the program is currently halted.
     Short-short       - Waiting for serial connection (runs at startup if debugMode is enabled)
-    Short-long-short  - Failed to initialize SPIFFS file system, or
-    Short-long-short  - Failed to load Preferences config item(s) from nvs, or
-    Short-long-short  - Failed to start wifi softAP during startup, or
-    Short-long-short  - Failed to start mDNS server during startup, or
-    Short-long-short  - Failed to start web server during startup
-    Short-long-long-short - Unable to establish I2C connection with [TODO FOR NEW ACCELEROMETER]
-    Short-long-long-long-short - Unable to establish I2C connection with to DPS310 in startup
+    Short-1x long-short  - Failed to load / write Preferences config item(s) from nvs
+    Short-2x long-short  - Failed to initialize SPIFFS file system
+    Short-3x long-short  - Failed to start wifi softAP during startup
+    Short-4x long-short  - Failed to start mDNS server during startup
+    Short-5x long-short  - Failed to start web server during startup
+    Short-6x long-short - Unable to establish I2C connection with [TODO FOR NEW ACCELEROMETER]
+    Short-7x long-short - Unable to establish I2C connection with to DPS310 in startup
   */
   int debugMode = 1;    // 0 = Off, 1 = General, 2 = Verbose (prints all sensor data to serial in Teleplot format)
-  bool wi_devMode = 1;  // If true WiFi will attempt to connect to the network with SSID wi_devHost and password wi_devHostPass, rather than creating it's own AP. Use for development purposes only!
+  bool const nvs_clearData = 0; // If true, the configuration data stored in NVS (using Preferences) will be overwritten with the default global variables defined below
+  bool wi_devMode = 0;  // If true WiFi will attempt to connect to the network with SSID wi_devHost and password wi_devHostPass, rather than creating it's own AP. Use for development purposes only!
   const char * wi_devHost = "NTest"; // SSID of wifi network to connect to when in dev mode
   const char * wi_devHostPass = "testificate";  // Password of network to connect to when in dev mode
+  
 
 // IO Defines -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
   #define p_xAccel A0         // Accelerometer X analog pin
@@ -88,6 +90,7 @@ Hardware used:
 
 // Instantiate Classes --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
   ESP32Time rtc(0);     // RTC object (0ms offset for GMT timezone)
+  Preferences prefs;    // Preferences object for accessing NVS config values
   WebServer server(80); // WebServer object
   Adafruit_DPS310 dps;  // DPS310 object
 
@@ -97,9 +100,9 @@ Hardware used:
       Persistent config variables are loaded from the nvs (non-volatile storage) partition in setup() via the Preferences library
   */
   // WiFi
-  const char * wi_ssid = "Graphite";    // Wifi network name
-  const char * wi_pass = "allthedata";  // Wifi network password (minimum 8 characters)
-  const char * wi_address = "graphite"; // mDNS hostname, creates a local domain name [wi_address].local for accessing the web server
+  char wi_ssid[61] = "Graphite";    // Wifi network name (max 60 characters)
+  char wi_pass[61] = "allthedata";  // Wifi network password (minimum 8 characters, max 60)
+  char wi_address[61] = "graphite"; // mDNS hostname, creates a local domain name [wi_address].local for accessing the web server (max 60 characters)
   int wi_channel = 1;                   // What wireless channel to use for the AP
   wifi_power_t wi_power = WIFI_POWER_8_5dBm; // WiFi Tx Power setting (see WiFiGeneric.h for possible values)
 
@@ -201,7 +204,7 @@ Hardware used:
 // Misc. Functions ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 
 // List directory debug function for SPIFFS file system
-void SPIFFS_List_Dir(const char * dirName = "/") {
+void SPIFFS_ListDir(const char * dirName = "/") {
   if (debugMode < 1) return;
   int used = SPIFFS.usedBytes();
   int total = SPIFFS.totalBytes();
@@ -226,7 +229,7 @@ void SPIFFS_List_Dir(const char * dirName = "/") {
       debugMsg("  DIR : ",1,0);
       debugMsg(file.name());
       debugMsg("  --->");
-      SPIFFS_List_Dir(file.path());
+      SPIFFS_ListDir(file.path());
       debugMsg("  ---");
     } else {
       debugMsg("  FILE: ",1,0);
@@ -243,6 +246,26 @@ void SPIFFS_List_Dir(const char * dirName = "/") {
 float mapf(float num, float fromLow, float fromHigh, float toLow, float toHigh) {
 	return (num - fromLow) * (toHigh - toLow) / (fromHigh - fromLow) + toLow;
 }
+
+// Status LED functions
+
+/// @brief Halt the program (infinite while loop) and play a blink pattern on the status LED. Pattern is: short blink - long blinks - short blink - 1.5sec delay - repeat
+/// @param num Number of long blinks to show
+void LED_HaltPattern(int num = 1) {
+  while(1) {
+    digitalWrite(LED_BUILTIN,0); delay(80); // On 80ms
+    digitalWrite(LED_BUILTIN,1); delay(200); // Of 200ms
+    for (int i = 1; i<=num; i++) {  // Long blinks
+      digitalWrite(LED_BUILTIN,0); delay(500); // On 500ms
+      digitalWrite(LED_BUILTIN,1); delay(100); // Off 100ms
+    }
+    delay(100); // Off another 100ms to match 200ms delay from first short blink
+    digitalWrite(LED_BUILTIN,0); delay(80); // On 80ms
+    digitalWrite(LED_BUILTIN,1); delay(1500); // Off 1500ms
+  }
+}
+
+
 
 // These must exist in main.cpp because I hate myself (But also because server.on() requires a void function with no args but I have to pass the server object as an arg to the wi_ funcs.)
 // And no, a lambda function inline with server.on() doesn't work either. Stupid esoteric nonsense...
@@ -281,22 +304,79 @@ void setup() {
   rtc.setTime(0,0,0,1,1,2023,0);  //Initialize the RTC to 1/1/2023 00:00 and 0 microsec
 
   // Load config data from NVS
-  //todo
+  debugMsg("[INIT]: Loading configuration data from NVS...\n");
+  if (!prefs.begin("config")) { // Start Preferences in "config" namespace (or create, if it doesn't exist yet)
+    debugMsg("  [CRITICAL]: Failed to open configuration namespace in NVS partition, program halted.\n");
+    LED_HaltPattern(1); // loop halt pattern on status LED forever
+  }
+  if (nvs_clearData) {  // Create / overwrite all config key values with the global defaults
+    debugMsg("  clearData flag is set: (over)writing all NVS configuration values with defaults...\n");
+    if (!prefs.clear()) { // Clear all key:value pairs from the config namespace
+      debugMsg("  [CRITICAL]: Failed to clear values from NVS! Program halted.\n");
+      LED_HaltPattern(1); // loop halt pattern on status LED forever
+    }
+    prefs.putString("wi_ssid",wi_ssid);
+    prefs.putString("wi_pass",wi_pass);
+    prefs.putString("wi_address",wi_address);
+    prefs.putInt("wi_channel",wi_channel);
+    prefs.putFloat("cal_lapseRate",cal_lapseRate);
+    prefs.putFloat("cal_magicExp",cal_magicExp);
+    prefs.putFloat("cal_pAtSea",cal_pAtSea);
+    debugMsg("  Configuration data (over)written with default values.");
+  } else {
+    // Note: We have isKey checks for each key to ensure each key exists and write it's default value if it doesn't (i.e. fail gracefully)
+    //TODO: These are repetitive; create a loadConfig() function to do the isKey if-else routine
+    if (prefs.isKey("wi_ssid")) {
+      prefs.getString("wi_ssid", wi_ssid, sizeof(wi_ssid));
+    } else {
+      prefs.putString("wi_ssid",wi_ssid);
+    } debugMsg("  WiFi SSID loaded: ",1,0); debugMsg(wi_ssid);
+    if (prefs.isKey("wi_pass")) {
+      prefs.getString("wi_pass", wi_pass, sizeof(wi_pass));
+    } else {
+      prefs.putString("wi_pass",wi_pass);
+    } debugMsg("  WiFi password loaded: ",1,0); debugMsg(wi_pass);
+    if (prefs.isKey("wi_address")) {
+      prefs.getString("wi_address", wi_address, sizeof(wi_address));
+    } else {
+      prefs.putString("wi_address",wi_address);
+    } debugMsg("  WiFi web address loaded: ",1,0); debugMsg(wi_address,1,0); debugMsg(".local");
+    if (prefs.isKey("wi_channel")) {
+      wi_channel = prefs.getFloat("wi_channel",wi_channel);  
+    } else {
+      prefs.putFloat("wi_channel",wi_channel);
+    } debugMsg("  WiFi Channel loaded: ",1,0); debugMsg(wi_channel);
+    if (prefs.isKey("cal_lapseRate")) {
+      cal_lapseRate = prefs.getFloat("cal_lapseRate",cal_lapseRate);
+    } else {
+      prefs.putFloat("cal_lapseRate",cal_lapseRate);
+    } debugMsg("  Altimeter Temperature Lapse Rate loaded: ",1,0); debugMsg(cal_lapseRate);
+    if (prefs.isKey("cal_magicExp")) {
+      cal_magicExp = prefs.getFloat("cal_magicExp",cal_magicExp);
+    } else {
+      prefs.putFloat("cal_magicExp",cal_magicExp);
+    } debugMsg("  Altimeter Magic Exponent loaded: ",1,0); debugMsg(cal_magicExp);
+    if (prefs.isKey("cal_pAtSea")) {
+      cal_pAtSea = prefs.getFloat("cal_pAtSea",cal_pAtSea);
+    } else {
+      prefs.putFloat("cal_pAtSea",cal_pAtSea);
+    } debugMsg("  Altimeter Sea Level Pressure loaded: ",1,0); debugMsg(cal_pAtSea);
+  
+    debugMsg("  Finished loading configuration data.");
+    debugMsg("  (NVS free entries remaining: ",1,0); debugMsg(prefs.freeEntries(),1,0); debugMsg(")\n");
+  }
 
   // Init SPIFFS file system
+  debugMsg("[INIT]: Starting SPIFFS...\n");
   if(!SPIFFS.begin()){
-      debugMsg("[CRITICAL]: Failed to init SPIFFS");
-      while (1) { // Blink short-long-short error pattern on LED
-        digitalWrite(LED_BUILTIN,0); delay(100);
-        digitalWrite(LED_BUILTIN,1); delay(100);
-        digitalWrite(LED_BUILTIN,0); delay(500);
-        digitalWrite(LED_BUILTIN,1); delay(100);
-        digitalWrite(LED_BUILTIN,0); delay(100);
-        digitalWrite(LED_BUILTIN,1); delay(1000);
-      }
+      debugMsg("[CRITICAL]: Failed to init SPIFFS, program halted");
+      LED_HaltPattern(2); // loop halt pattern on status LED forever
+  } else {
+    debugMsg("  SPIFFS Started.");
+    SPIFFS_ListDir(); // Print the SPIFFS file tree to debug
+    debugMsg("");
   }
-  SPIFFS_List_Dir(); // Print the SPIFFS file tree to debug
-  debugMsg("");
+
 
   // Wifi setup
   debugMsg("[INIT]: Starting Wifi...\n");
@@ -312,14 +392,7 @@ void setup() {
       timeout++;
       if (timeout >= 600) { // Stop trying to connect if it's been more than 5 minutes (300000ms / 500 = 600)
         debugMsg("  [CRITICAL]: Failed to connect to dev wifi network, program halted!");
-        while (1) { // Blink short-long-short error pattern on LED
-        digitalWrite(LED_BUILTIN,0); delay(100);
-        digitalWrite(LED_BUILTIN,1); delay(100);
-        digitalWrite(LED_BUILTIN,0); delay(500);
-        digitalWrite(LED_BUILTIN,1); delay(100);
-        digitalWrite(LED_BUILTIN,0); delay(100);
-        digitalWrite(LED_BUILTIN,1); delay(1000);
-        }
+        LED_HaltPattern(3); // loop halt pattern on status LED forever
       }
     }
     debugMsg("\n  Wifi Connected to: ",1,0); debugMsg(WiFi.SSID(),1,0); debugMsg(" with RSSI: ",1,0); debugMsg(WiFi.RSSI()); 
@@ -329,17 +402,10 @@ void setup() {
     WiFi.mode(WIFI_MODE_AP);
     if (!WiFi.softAP(wi_ssid,wi_pass,1,0,1)) { // Start a softAP on channel 1 with only one client allowed (because WebServer.h can't handle more than one at a time)
       debugMsg("  [CRITICAL]: Soft AP creation failed, program halted.");
-      while (1) { // Blink short-long-short error pattern on LED
-        digitalWrite(LED_BUILTIN,0); delay(100);
-        digitalWrite(LED_BUILTIN,1); delay(100);
-        digitalWrite(LED_BUILTIN,0); delay(500);
-        digitalWrite(LED_BUILTIN,1); delay(100);
-        digitalWrite(LED_BUILTIN,0); delay(100);
-        digitalWrite(LED_BUILTIN,1); delay(1000);
-      }
+      LED_HaltPattern(3); // loop halt pattern on status LED forever
     }
     WiFi.setTxPower(wi_power);
-    debugMsg("  Wifi started SSID: ",1,0); debugMsg(WiFi.SSID(),1,0); debugMsg(" and IP: ",1,0); debugMsg(WiFi.softAPIP()); 
+    debugMsg("  Wifi started SSID: ",1,0); debugMsg(WiFi.softAPSSID(),1,0); debugMsg(" and IP: ",1,0); debugMsg(WiFi.softAPIP()); 
     debugMsg("");
   }
 
@@ -347,14 +413,7 @@ void setup() {
   debugMsg("[INIT]: Starting Web Server...\n");
   if (!MDNS.begin(wi_address)) {
     debugMsg("  [CRITICAL}: Failed to start mDNS Service]");
-    while (1) { // Blink short-long-short error pattern on LED
-      digitalWrite(LED_BUILTIN,0); delay(100);
-      digitalWrite(LED_BUILTIN,1); delay(100);
-      digitalWrite(LED_BUILTIN,0); delay(500);
-      digitalWrite(LED_BUILTIN,1); delay(100);
-      digitalWrite(LED_BUILTIN,0); delay(100);
-      digitalWrite(LED_BUILTIN,1); delay(1000);
-    }
+    LED_HaltPattern(4); // loop halt pattern on status LED forever
   } else {
     MDNS.addService("http", "tcp", 80);
     debugMsg("  mDNS started, web server available at http://",1,0); debugMsg(wi_address,1,0); debugMsg(".local");
@@ -373,7 +432,7 @@ void setup() {
   server.on("/disarm", handleDisarming);
   
   server.onNotFound( []() { wi_NotFound(server); }); // Callback to handle invalid requests from client (404 response);
-  server.begin();
+  server.begin(); //TODO: this doesn't return anything; find a way to check if server successfully started?
 
   // DPS310 setup (Barometric temp + pressure)
   debugMsg("\n\n\n[INIT]: Initializing sensors...");
@@ -390,18 +449,7 @@ void setup() {
     }
     if (i == 10) { // If we've tried 10 times and still haven't connected, something's wrong
       debugMsg("  [CRITICAL]: Failed to initialize Sensor: DPS310, program halted.");
-      while (1) { // Blink short-long-long-long-short error pattern on LED
-        digitalWrite(LED_BUILTIN,0); delay(100);
-        digitalWrite(LED_BUILTIN,1); delay(100);
-        digitalWrite(LED_BUILTIN,0); delay(500);
-        digitalWrite(LED_BUILTIN,1); delay(100);
-        digitalWrite(LED_BUILTIN,0); delay(500);
-        digitalWrite(LED_BUILTIN,1); delay(100);
-        digitalWrite(LED_BUILTIN,0); delay(500);
-        digitalWrite(LED_BUILTIN,1); delay(100);
-        digitalWrite(LED_BUILTIN,0); delay(100);
-        digitalWrite(LED_BUILTIN,1); delay(1000);
-      }
+      LED_HaltPattern(7); // loop halt pattern on status LED forever
     }
     delay(1); // Wait but a short moment before attempting the I2C connection again
   }
